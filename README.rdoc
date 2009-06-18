@@ -1,0 +1,25 @@
+= Important note
+
+This library is in an alpha state and still being developed and tested
+
+= ProcessMailer
+
+The ProcessMailer is a simple way to process your logic. It takes your objects, treats them like envelopes, and sends them off to the postboxes the objects to process them live at. Those objects can process those objects, and send them back to the PostOffice for delivery. Just that simple.
+
+Need a picture for a little more explanation. Well, here's a poory spaced text version:
+
+== ASCII Image
+
+                ProcessMailer
+               /    |       \
+          Postbox Postbox  Postbox
+
+== Postbox
+
+Postboxes are basically a process for an object to sit in. A postbox can be inherited, or can be supplied with an execution block to process objects.
+
+== Information
+
+    Author: spox <spox@modspox.com>
+    {Site:}[http://dev.modspox.com/trac/ProcessMailer]
+    License: LGPLv3

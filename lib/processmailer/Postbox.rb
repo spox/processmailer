@@ -1,16 +1,20 @@
 require 'actionpool'
+require 'processmailer/Exceptions'
 
 module ProcessMailer
     class Postbox
         # Initialize the Postbox. Subclasses should
-        # super() before doing their setup
+        # super() after doing their setup
         def initialize(args)
             default_args(args)
             @pipes = {:read => args[:read_pipe], :write => args[:write_pipe]}
             @proc = args[:proc]
             @pool = ActionPool::Pool.new(1, args[:max_threads])
             @stop = false
-            listen
+        end
+        # Close the postbox for delivery
+        def close
+            @stop = true
         end
         # read:: read IO.pipe
         # write:: write IO.pipe
@@ -25,6 +29,18 @@ module ProcessMailer
         # be overridden in subclasses.
         def process(obj)
             return @proc.call(obj)
+        end
+        # Listen for incoming messages from PostOffice
+        def listen
+            until(@stop) do
+                begin
+                    s = Kernel.select(@pipe[:read], nil, nil, nil)
+                    receive
+                rescue Exceptions::Resync
+                    # resync sockets #
+                rescue Object => boom
+                end
+            end
         end
         private
         def receive
@@ -49,19 +65,6 @@ module ProcessMailer
             {:read_pipe => nil, :write_pipe => nil, :proc => nil, :max_threads => 5}.each_pair{|k,v|
                 args[k] = v unless args.has_key?(k)
             }
-        end
-        def listen
-            @pool.process do
-                until(@stop) do
-                    begin
-                        s = Kernel.select(@pipe[:read], nil, nil, nil)
-                        receive
-                    rescue Exceptions::Resync
-                        # resync sockets #
-                    rescue Object => boom
-                    end
-                end
-            end
         end
     end
 end

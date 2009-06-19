@@ -17,7 +17,7 @@ module ProcessMailer
         # default_workers: default number of threads per Postbox
         def initialize(args={})
             @default_workers = args[:default_workers] ? args[:default_workers] : 5
-            @postboxes = [] # [{:read => rd, :write => wr}}]
+            @postboxes = {} # {PID => {:read => rd, :write => wr}}
             @hooks = {} # {Some::Class => []}
             @readers = []
             @close_postoffice = false
@@ -35,41 +35,41 @@ module ProcessMailer
         # Registers a new Postbox with the PostOffice. Returns Postbox process ID
         # TODO: fix the fork in here
         def register(pb=nil, &block)
-            raise Exceptions::InvalidType.new(Postbox, pb.class) unless pb.nil? || pb.is_a?(Postbox)
-            raise Exceptions::EmptyParameters.new if pb.nil? && block.nil?
+            raise Exceptions::InvalidType.new(Class, pb.class) unless pb.nil? || pb.is_a?(Class)
+            raise Exceptions::EmptyParameters.new if pb.nil? && !block_given?
             r,w = IO.pipe
             pid = nil
             if(block_given?)
                 pid = Kernel.fork do
-                    
+                    box = Postbox.new(:proc => block, :read_pipe => r, :write_pipe => w, :max_threads => @default_workers)
+                    Signal.trap('HUP'){ box.close }
+                    box.listen
                 end
             else
+                pid = Kernel.fork do
+                    box = pb.new(:read_pipe => r, :write_pipe => w, :max_threads => @default_workers)
+                    Signal.trap('HUP'){ box.close }
+                    box.listen
+                end
             end
-            @postboxes << {:read => r, :write => w, :pid => pid}
-            @readers << r
-            @processor.raise Exceptions::Resync.new
-        end
-            if(pb.is_a?(Proc) || pb.nil?)
-                pb = block if pb.nil?
-                rd, wr = IO.pipe
-                box = Postbox.new(:proc => pb, :read_pipe => rd, :write_pipe => wr, :max_theads => @default_workers)
-                @postboxes[box] = {:read => rd, :write => wr}
-                @readers << rd
-            else
-                rd, wr = IO.pipe
-                pb.install_pipe(rd, wr)
-                @postboxes[pb] = {:read => rd, :write => wr}
-                @readers << rd
+            if(pid)
+                @postboxes[pid] = {:read => r, :write => w}
+                @readers << r
+                @processor.raise Exceptions::Resync.new
+                return pid
             end
-            @processor.raise Exceptions::Resync.new
         end
-        # pbid:: Postbox
+        # pid:: Postbox delivery address (Process ID)
         # Removes a Postbox from the PostOffice
-        def unregister(pb)
-            raise Exceptions::InvalidType.new(Class, pb.class) unless pb.is_a?(Postbox)
-            pipes = @postboxes.delete(pb)
+        def unregister(pid)
+            pid = pid.to_i
+            raise Exception.new('Failed to locate process') unless @postboxes.has_key?(pid)
+            pipes = @postboxes.delete(pid)
+            Process.kill('HUP', pid)
             @readers.delete(pipes[:read])
             @processor.raise Exceptions::Resync.new
+            pipes[:write].write ' '
+            Process.waitpid(pid, Process::WNOHANG)
         end
         # c:: Class
         # action:: callable block (Proc/lambda)

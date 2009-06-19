@@ -1,4 +1,4 @@
-require 'ActionPool'
+require 'actionpool'
 
 module ProcessMailer
     class Postbox
@@ -9,6 +9,8 @@ module ProcessMailer
             @pipes = {:read => args[:read_pipe], :write => args[:write_pipe]}
             @proc = args[:proc]
             @pool = ActionPool::Pool.new(1, args[:max_threads])
+            @stop = false
+            listen
         end
         # read:: read IO.pipe
         # write:: write IO.pipe
@@ -47,6 +49,19 @@ module ProcessMailer
             {:read_pipe => nil, :write_pipe => nil, :proc => nil, :max_threads => 5}.each_pair{|k,v|
                 args[k] = v unless args.has_key?(k)
             }
+        end
+        def listen
+            @pool.process do
+                until(@stop) do
+                    begin
+                        s = Kernel.select(@pipe[:read], nil, nil, nil)
+                        receive
+                    rescue Exceptions::Resync
+                        # resync sockets #
+                    rescue Object => boom
+                    end
+                end
+            end
         end
     end
 end

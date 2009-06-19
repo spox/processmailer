@@ -1,4 +1,6 @@
-require 'ActionPool'
+require 'actionpool'
+require 'processmailer/Postbox'
+require 'processmailer/Exceptions'
 
 module ProcessMailer
     # The PostOffice is the driver of the
@@ -15,7 +17,7 @@ module ProcessMailer
         # default_workers: default number of threads per Postbox
         def initialize(args={})
             @default_workers = args[:default_workers] ? args[:default_workers] : 5
-            @postboxes = {} # {Postbox => {:read => rd, :write => wr}}
+            @postboxes = [] # [{:read => rd, :write => wr}}]
             @hooks = {} # {Some::Class => []}
             @readers = []
             @close_postoffice = false
@@ -26,15 +28,27 @@ module ProcessMailer
         # Delivers object to Postboxes for processing
         def deliver(obj)
             s = [Marshal.dump(obj)].pack('m')
-            @postboxes.each_pair{|pb, pipes| pipes.write s}
+            @postboxes.each_pair{|pb, pipes| pipes[:write].write s}
             call_hooks(obj)
         end
-        # pb:: Postbox or lambda/proc to be wrapped into Postbox
-        # Registers a new Postbox with the PostOffice. Returns
-        # a Postbox
-        def register(pb=nil, &block=nil)
+        # pb:: Class name of custom Postbox
+        # Registers a new Postbox with the PostOffice. Returns Postbox process ID
+        # TODO: fix the fork in here
+        def register(pb=nil, &block)
             raise Exceptions::InvalidType.new(Postbox, pb.class) unless pb.nil? || pb.is_a?(Postbox)
             raise Exceptions::EmptyParameters.new if pb.nil? && block.nil?
+            r,w = IO.pipe
+            pid = nil
+            if(block_given?)
+                pid = Kernel.fork do
+                    
+                end
+            else
+            end
+            @postboxes << {:read => r, :write => w, :pid => pid}
+            @readers << r
+            @processor.raise Exceptions::Resync.new
+        end
             if(pb.is_a?(Proc) || pb.nil?)
                 pb = block if pb.nil?
                 rd, wr = IO.pipe
@@ -67,7 +81,7 @@ module ProcessMailer
         # 
         # Example:
         #   po.hook(Array){|obj| puts obj.join(', ')}
-        def hook(c, action=nil, &block=nil)
+        def hook(c, action=nil, &block)
             b = action.nil? ? block : action
             raise Exceptions::EmptyParameters.new if b.nil?
             raise Exceptions::InvalidType.new(Class, c.class) unless c.is_a?(Class)
@@ -84,6 +98,16 @@ module ProcessMailer
             raise Exceptions::EmptyParameters.new unless hid.is_a?(Integer)
             @hooks[c].delete_at(hid)
             @hooks.delete(c) if @hooks[c].empty?
+        end
+
+        # Returns hash of hooks currently in the PostOffice
+        def hooks
+            @hooks
+        end
+
+        # Returns hash of PostBoxes currently in the PostOffice
+        def postboxes
+            @postboxes
         end
         private
         def listen

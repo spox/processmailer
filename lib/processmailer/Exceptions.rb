@@ -1,6 +1,6 @@
 module ProcessMailer
     module Exceptions
-        class InvalidType
+        class InvalidType < Exception
             attr_reader :expected
             attr_reader :received
             def initialize(e,r)
@@ -11,12 +11,12 @@ module ProcessMailer
                 "Expected type: #{e}. Received type: #{r}"
             end
         end
-        class EmptyParameters
+        class EmptyParameters < Exception
             def to_s
                 'Parameters passed are empty'
             end
         end
-        def Resync
+        class Resync < Exception
         end
     end
 end

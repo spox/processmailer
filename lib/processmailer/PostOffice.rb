@@ -28,12 +28,11 @@ module ProcessMailer
         # Delivers object to Postboxes for processing
         def deliver(obj)
             s = [Marshal.dump(obj)].pack('m')
-            @postboxes.each_pair{|pb, pipes| pipes[:write].write s}
+            @postboxes.each_value{|pipes| pipes[:write].write s}
             call_hooks(obj)
         end
         # pb:: Class name of custom Postbox
         # Registers a new Postbox with the PostOffice. Returns Postbox process ID
-        # TODO: fix the fork in here
         def register(pb=nil, &block)
             raise Exceptions::InvalidType.new(Class, pb.class) unless pb.nil? || pb.is_a?(Class)
             raise Exceptions::EmptyParameters.new if pb.nil? && !block_given?

@@ -34,7 +34,7 @@ module ProcessMailer
         def listen
             until(@stop) do
                 begin
-                    s = Kernel.select(@pipe[:read], nil, nil, nil)
+                    s = Kernel.select(@pipes[:read], nil, nil, nil)
                     receive
                 rescue Exceptions::Resync
                     # resync sockets #

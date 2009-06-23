@@ -1,5 +1,7 @@
+require 'yaml'
 require 'actionpool'
 require 'processmailer/Exceptions'
+require 'processmailer/LogHelper'
 
 module ProcessMailer
     class Postbox
@@ -9,7 +11,8 @@ module ProcessMailer
             default_args(args)
             @pipes = {:read => args[:read_pipe], :write => args[:write_pipe]}
             @proc = args[:proc]
-            @pool = ActionPool::Pool.new(1, args[:max_threads])
+            @pool = ActionPool::Pool.new(args[:min_threads], args[:max_threads], args[:thread_to], args[:action_to], args[:logger])
+            @logger = LogHelper.new(args[:logger])
             @stop = false
         end
         # Close the postbox for delivery
@@ -34,35 +37,51 @@ module ProcessMailer
         def listen
             until(@stop) do
                 begin
-                    s = Kernel.select(@pipes[:read], nil, nil, nil)
+                    Kernel.select([@pipes[:read]], nil, nil, nil)
                     receive
                 rescue Exceptions::Resync
                     # resync sockets #
                 rescue Object => boom
+                    @logger.error("Postbox encountered error on listen: #{boom}")
                 end
             end
         end
         private
         def receive
-            s = @pipes[:read].read
-            obj = s.size > 0 ? Marshal.load(s.unpack('m')[0]) : nil
-            run_process(obj)
+            @logger.info("Postbox (#{self}) has message waiting")
+            begin
+                s = @pipes[:read].gets('~*~')
+                s = s[0..-4]
+                @logger.info("Postbox (#{self}) received an empty message") if s.nil? || s.empty?
+                return if s.nil? || s.empty?
+                @logger.info("Postbox (#{self}) message: #{s}")
+                obj = s.size > 0 ? YAML::load(s) : nil
+                @logger.info("Postbox (#{self}) message reconstructed: #{obj}")
+                run_process(obj)
+            rescue Object => boom
+                @logger.error("Postbox encountered error on receive: #{boom}")
+            end
+            
         end
         def send(obj)
             return if obj.nil?
-            @pipes[:send].write [Marshal.dump(obj)].pack('m')
+            @pipes[:write].puts YAML::dump(obj) + '~*~'
         end
         def run_process(obj)
             @pool.process do
+                result = nil
                 begin
-                    send(process(obj))
+                    result = @proc.call(obj)
                 rescue Object => boom
-                    send(boom)
+                    @logger.warn("Postbox contents generated exception on call: #{boom}")
+                    result = boom
                 end
+                send(result)
             end
         end
         def default_args(args)
-            {:read_pipe => nil, :write_pipe => nil, :proc => nil, :max_threads => 5}.each_pair{|k,v|
+            {:read_pipe => nil, :write_pipe => nil, :proc => nil, :max_threads => 5,
+             :min_threads => 1, :thread_to => nil, :action_to => nil, :logger => nil}.each_pair{|k,v|
                 args[k] = v unless args.has_key?(k)
             }
         end

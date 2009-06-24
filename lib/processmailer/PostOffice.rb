@@ -150,17 +150,19 @@ module ProcessMailer
             end
         end
         def call_hooks(obj)
-            if(@hooks[obj.class])
-                @hooks[obj.class].each do |hook|
-                    @pool.process do
-                        result = nil
-                        begin
-                            result = hook.call(obj)
-                        rescue Object => boom
-                            @logger.warn("Hook generated an error: #{boom}")
-                            result = boom
-                        ensure
-                            deliver(result)
+            obj.class.ancestors.each do |klass|
+                if(@hooks[klass])
+                    @hooks[klass].each do |hook|
+                        @pool.process do
+                            result = nil
+                            begin
+                                result = hook.call(obj)
+                            rescue Object => boom
+                                @logger.warn("Hook generated an error: #{boom}")
+                                result = boom
+                            ensure
+                                deliver(result) unless result.nil?
+                            end
                         end
                     end
                 end

@@ -4,22 +4,86 @@ This library is in an alpha state and still being developed and tested
 
 = ProcessMailer
 
-The ProcessMailer is a simple way to process your logic. It takes your objects, treats them like envelopes, and sends them off to the postboxes the objects to process them live at. Those objects can process those objects, and send them back to the PostOffice for delivery. Just that simple.
+The idea is simple. Mail data to processes.
 
-Need a picture for a little more explanation. Well, here's a poory spaced text version:
+== What?
 
-== ASCII Image
+The ProcessMailer mails data. To processes. (Oh, it also allows you to send data to hooks, which uses a thread pool and doesn't restrict memory access, but that's not the point of this library!) So, the better question might be, why? Well, for one, you can make things faster. See, what's great about this library is that you encapsulate your logic in little processes that have been forked. Data is then packaged up and sent to these processes where the processes can then do what ever they please to that piece of data. This simple design, though some what more complicated in use, allows you to make use of multiple cpus/cores where using something like a thread pool would keep you limited to a single core.
 
-                ProcessMailer
-               /    |       \
-          Postbox Postbox  Postbox
+== How does it work?
 
-== Postbox
+Well, the general overview is something like this:
 
-Postboxes are basically a process for an object to sit in. A postbox can be inherited, or can be supplied with an execution block to process objects.
+    Main<||>---------ProcessOffice<>----------*Postbox
 
-== Information
+In crappy, texty, UMLy fashion, what we have is a Main program composed of a PostOffice. That PostOffice has an aggregation of zero or more Postboxes it knows about. That's the basic structure.
+
+== How about an example?
+
+Sure, lets make something simple. We will start out using blocks:
+
+    require 'processmailer'
+    
+    po = ProcessMailer::PostOffice.new
+    po.register{|a| puts "Decrement: #{a}"; a -= 1; a}
+    po.register{|a| puts "Increment: #{a}"; a += 1; a}
+
+    po.deliver(1)
+    sleep(2)
+    po.clean
+
+First, we create our PostOffice. Next, we register two Postboxes using blocks. The argument is the Object that will be delivered via the PostOffice. After registering two Postboxes, we deliver a Fixnum. The PostOffice delivers messages to registered Postboxes using a thread pool, so our main line of execution will continue. So, lets sleep for a couple seconds to see some output generated. Finally, we clean the PostOffice which removes all registered Postboxes.
+
+== Blocks suck
+
+Well, not really, but they can be a bit restrictive. For something a little more robust, we create a class that's a subclass of Postbox, and let it do the work:
+
+    require 'processmailer'
+
+    class Test < ProcessMailer::Postbox
+        def initialize(args)
+            super
+            @foo = 2
+        end
+        def process(obj)
+            puts "Decrement: #{obj}"
+            obj -= @foo
+        end
+    end
+
+    po = ProcessMailer::PostOffice.new
+    po.register(Test)
+    po.register{|a| puts "Increment: #{a}"; a += 1; a}
+
+    po.deliver(1)
+    sleep(2)
+    po.clean
+
+This is doing the same basic thing we did in the blocks. The Test class is simply a subclass of Postbox, and the process method is overridden to do the grunt work. The reason we send in a Class type, and not the instantiated object, is to allow the PostOffice to do the proper creation and forking. That's pretty much it.
+
+== One last thing
+
+The result of the process method or block for a given Postbox will be returned to the PostOffice for delivery. That is why the examples run
+continuously. Returning a nil value will stop delivery. This means that the example below will only output two lines:
+
+    require 'processmailer'
+
+    po = ProcessMailer::PostOffice.new
+    po.register{|a| puts "Decrement: #{a}"; nil}
+    po.register{|a| puts "Increment: #{a}"; nil}
+
+    po.deliver(1)
+    sleep(2)
+    po.clean
+
+
+== ASCII Representation:
+
+                [ProcessMailer]----[message]---->[Postbox]
+                      ^                             |
+                      -----------[return val]-------'
+                      
+== Informations
 
     Author: spox <spox@modspox.com>
-    {Site:}[http://dev.modspox.com/trac/ProcessMailer]
     License: LGPLv3

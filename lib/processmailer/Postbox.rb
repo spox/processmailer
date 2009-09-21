@@ -9,7 +9,7 @@ module ProcessMailer
         def initialize(args)
             default_args(args)
             @pipes = {:read => args[:read_pipe], :write => args[:write_pipe]}
-            @proc = args[:proc] ? arg[:proc] : lambda{nil}
+            @proc = args[:proc] ? args[:proc] : lambda{nil}
             @pool = ActionPool::Pool.new(args[:min_threads], args[:max_threads], args[:thread_to], args[:action_to], args[:logger])
             @logger = LogHelper.new(args[:logger])
             @stop = false

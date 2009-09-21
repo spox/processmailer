@@ -1,4 +1,3 @@
-require 'yaml'
 require 'actionpool'
 require 'processmailer/Postbox'
 require 'processmailer/Exceptions'
@@ -39,8 +38,8 @@ module ProcessMailer
         # obj:: Serializable object for delivery
         # Delivers object to Postboxes for processing
         def deliver(obj)
-            s = YAML::dump(obj)
-            @postboxes.each_value{|pipes| pipes[:write].write s + "~*~" }
+            s = [Marshal.dump(obj)].pack('m')
+            @postboxes.each_value{|pipes| pipes[:write].puts s}
             call_hooks(obj)
         end
         # pb:: Class name of custom Postbox
@@ -61,7 +60,7 @@ module ProcessMailer
             else
                 pid = Kernel.fork do
                     box = pb.new(:read_pipe => r, :write_pipe => w, :max_threads => @max_workers,
-                                 :min_threads => @min_threads, :thread_to => @thread_to,
+                                 :min_threads => @min_workers, :thread_to => @thread_to,
                                  :action_to => @action_to, :logger => @logger.raw)
                     Signal.trap('HUP'){ box.close }
                     box.listen
@@ -83,7 +82,7 @@ module ProcessMailer
             Process.kill('HUP', pid)
             @readers.delete(pipes[:read])
             @processor.raise Exceptions::Resync.new
-            pipes[:write].write '~*~'
+            pipes[:write].puts "stop"
             Process.waitpid(pid)
         end
         # c:: Class
@@ -137,9 +136,8 @@ module ProcessMailer
                         if(sock.closed?)
                             close_on_socket(sock)
                         else
-                            string = sock.gets('~*~')
-                            string = string[0..-4]
-                            deliver(YAML::load(string)) unless string.nil?
+                            string = sock.gets
+                            deliver(Marshal.load(string.unpack('m')[0])) unless string.nil?
                         end
                     end
                 rescue Exceptions::Resync

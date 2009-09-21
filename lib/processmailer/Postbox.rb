@@ -1,4 +1,3 @@
-require 'yaml'
 require 'actionpool'
 require 'processmailer/Exceptions'
 require 'processmailer/LogHelper'
@@ -6,11 +5,11 @@ require 'processmailer/LogHelper'
 module ProcessMailer
     class Postbox
         # Initialize the Postbox. Subclasses should
-        # super() after doing their setup
+        # super(), preferably first thing
         def initialize(args)
             default_args(args)
             @pipes = {:read => args[:read_pipe], :write => args[:write_pipe]}
-            @proc = args[:proc]
+            @proc = args[:proc] ? arg[:proc] : lambda{nil}
             @pool = ActionPool::Pool.new(args[:min_threads], args[:max_threads], args[:thread_to], args[:action_to], args[:logger])
             @logger = LogHelper.new(args[:logger])
             @stop = false
@@ -50,12 +49,15 @@ module ProcessMailer
         def receive
             @logger.info("Postbox (#{self}) has message waiting")
             begin
-                s = @pipes[:read].gets('~*~')
-                s = s[0..-4]
+                s = @pipes[:read].gets
                 @logger.info("Postbox (#{self}) received an empty message") if s.nil? || s.empty?
                 return if s.nil? || s.empty?
+                if(s.strip == 'stop')
+                    @logger.info("Postbox (#{self}) received a stop instruction")
+                    return
+                end
                 @logger.info("Postbox (#{self}) message: #{s}")
-                obj = s.size > 0 ? YAML::load(s) : nil
+                obj = s.size > 0 ? Marshal.load(s.unpack('m')[0]) : nil
                 @logger.info("Postbox (#{self}) message reconstructed: #{obj}")
                 run_process(obj)
             rescue Object => boom
@@ -65,13 +67,13 @@ module ProcessMailer
         end
         def send(obj)
             return if obj.nil?
-            @pipes[:write].puts YAML::dump(obj) + '~*~'
+            @pipes[:write].puts [Marshal.dump(obj)].pack('m')
         end
         def run_process(obj)
             @pool.process do
                 result = nil
                 begin
-                    result = @proc.call(obj)
+                    result = process(obj)
                 rescue Object => boom
                     @logger.warn("Postbox contents generated exception on call: #{boom}")
                     result = boom

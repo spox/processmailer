@@ -14,7 +14,7 @@ The ProcessMailer mails data. To processes. (Oh, it also allows you to send data
 
 Well, the general overview is something like this:
 
-    Main<||>---------ProcessOffice<>----------*Postbox
+    Main<||>---------PostOffice<>----------*Postbox
 
 In crappy, texty, UMLy fashion, what we have is a Main program composed of a PostOffice. That PostOffice has an aggregation of zero or more Postboxes it knows about. That's the basic structure.
 
@@ -79,7 +79,7 @@ continuously. Returning a nil value will stop delivery. This means that the exam
 
 == ASCII Representation:
 
-                [ProcessMailer]----[message]---->[Postbox]
+                [PostOffice]------[message]---->[Postbox]
                       ^                             |
                       -----------[return val]-------'
                       

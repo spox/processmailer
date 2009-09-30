@@ -1,4 +1,5 @@
 require 'actionpool'
+require 'spockets'
 require 'processmailer/Postbox'
 require 'processmailer/Exceptions'
 require 'processmailer/LogHelper'
@@ -32,15 +33,19 @@ module ProcessMailer
             @hooks = {} # {Some::Class => []}
             @readers = []
             @close_postoffice = false
-            @processor = Thread.new{listen}
             @pool = args[:pool] ? args[:pool] : nil
+            @spockets = Spockets::Spockets.new(:pool => @pool)
         end
         # obj:: Serializable object for delivery
         # Delivers object to Postboxes for processing
         def deliver(obj)
+            @logger.info("Delivering: #{obj}")
+            call_hooks(obj)
             s = [Marshal.dump(obj)].pack('m')
             @postboxes.each_value{|pipes| pipes[:write].puts s}
-            call_hooks(obj)
+        end
+        def write_to_process(pipes, string)
+            @pool.process{ pipes[:lock].lock; pipes[:write].puts string; pipes[:lock].unlock}
         end
         # pb:: Class name of custom Postbox
         # Registers a new Postbox with the PostOffice. Returns Postbox process ID
@@ -67,9 +72,12 @@ module ProcessMailer
                 end
             end
             if(pid)
-                @postboxes[pid] = {:read => r, :write => w}
+                @logger.info("New postbox with pid: #{pid}")
+                @postboxes[pid] = {:read => r, :write => w, :lock => Mutex.new}
                 @readers << r
-                @processor.raise Exceptions::Resync.new
+                @spockets.add(r) do |string|
+                    deliver(Marshal.load(string.unpack('m')[0])) unless string.nil?
+                end
                 return pid
             end
         end
@@ -80,8 +88,7 @@ module ProcessMailer
             raise Exception.new('Failed to locate process') unless @postboxes.has_key?(pid)
             pipes = @postboxes.delete(pid)
             Process.kill('HUP', pid)
-            @readers.delete(pipes[:read])
-            @processor.raise Exceptions::Resync.new
+            @spockets.remove(pipes[:read])
             pipes[:write].puts "stop"
             Process.waitpid(pid)
         end
@@ -128,25 +135,7 @@ module ProcessMailer
             @postboxes.each_key{|k| unregister(k)}
         end
         private
-        def listen
-            until(@close_postoffice) do
-                begin
-                    s = Kernel.select(@readers, nil, nil, nil)
-                    for sock in s[0] do
-                        if(sock.closed?)
-                            close_on_socket(sock)
-                        else
-                            string = sock.gets
-                            deliver(Marshal.load(string.unpack('m')[0])) unless string.nil?
-                        end
-                    end
-                rescue Exceptions::Resync
-                    # resync sockets #
-                rescue Object => boom
-                    @logger.error("PostOffice error encountered reading message: #{boom}")
-                end
-            end
-        end
+
         def call_hooks(obj)
             obj.class.ancestors.each do |klass|
                 if(@hooks[klass])

@@ -21,6 +21,7 @@ module ProcessMailer
         # :action_to:: maximum time a thread may work on an action
         # :logger:: Logger to use
         # :pool:: ActionPool for PostOffice to utilize (not used by Postboxes)
+        # :auto_clean:: automatically clean up Postboxes
         # Sets up a PostOffice to handle message delivery.
         def initialize(args={})
             default_args(args)
@@ -31,11 +32,12 @@ module ProcessMailer
             @action_to = args[:action_to]
             @postboxes = {} # {PID => {:read => rd, :write => wr}}
             @hooks = {} # {Some::Class => []}
-            @readers = []
             @close_postoffice = false
             @pool = args[:pool] ? args[:pool] : nil
             @spockets = Spockets::Spockets.new(:pool => @pool)
-            Signal.trap(0, proc{clean}) # make sure everything is cleaned up
+            if(args[:auto_clean])
+                Signal.trap(0, proc{clean}) # make sure everything is cleaned up
+            end
         end
         # obj:: Serializable object for delivery
         # Delivers object to Postboxes for processing
@@ -43,9 +45,12 @@ module ProcessMailer
             call_hooks(obj)
             s = [Marshal.dump(obj)].pack('m')
             @postboxes.each_value do |pipes|
+                puts "Sending message to pipe: #{pipes[:write]}: #{obj}"
+                $stdout.flush
                 pipes[:write].puts s
                 pipes[:write].flush
             end
+            nil
         end
         # pb:: Class name of custom Postbox
         # Registers a new Postbox with the PostOffice. Returns Postbox process ID
@@ -73,8 +78,9 @@ module ProcessMailer
             end
             if(pid)
                 @postboxes[pid] = {:read => r, :write => w}
-                @readers << r
                 @spockets.add(r) do |string|
+                    puts "Read string from socket (#{r}): #{string}"
+                    $stdout.flush
                     deliver(Marshal.load(string.unpack('m')[0])) unless string.nil?
                 end
                 return pid
@@ -155,7 +161,7 @@ module ProcessMailer
             end
         end
         def default_args(args)
-            {:max_threads => 5, :min_threads => 1, :thread_to => nil, :action_to => nil, :logger => nil}.each_pair{|k,v|
+            {:max_threads => 5, :min_threads => 1, :thread_to => nil, :action_to => nil, :logger => nil, :auto_clean => false}.each_pair{|k,v|
                 args[k] = v unless args.has_key?(k)
             }
         end

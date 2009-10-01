@@ -35,8 +35,9 @@ module ProcessMailer
         def listen
             until(@stop) do
                 begin
-                    Kernel.select([@pipes[:read]], nil, nil, nil)
-                    receive
+                    s = Kernel.select([@pipes[:read]], nil, nil, nil)
+                    puts "Postbox (#{self}) has something to read from #{@pipes[:read]} at #{Time.now}"
+                    receive(s[0][0].gets.dup)
                 rescue Exceptions::Resync
                     # resync sockets #
                 rescue Object => boom
@@ -45,12 +46,11 @@ module ProcessMailer
             end
         end
         private
-        def receive
+        def receive(s)
             @count += 1
             puts "Number of messages received at #{self} - #{@count}"
             @logger.info("Postbox (#{self}) has message waiting")
             begin
-                s = @pipes[:read].gets
                 @logger.info("Postbox (#{self}) received an empty message") if s.nil? || s.empty?
                 return if s.nil? || s.empty?
                 if(s.strip == 'stop')
@@ -67,6 +67,8 @@ module ProcessMailer
         end
         def send(obj)
             return if obj.nil?
+            puts "Postbox: #{self} - Sending message: #{obj}"
+            $stdout.flush
             @pipes[:write].puts [Marshal.dump(obj)].pack('m')
         end
         def run_process(obj)
@@ -77,6 +79,7 @@ module ProcessMailer
                 @logger.warn("Postbox contents generated exception on call: #{boom}")
                 result = boom
             ensure
+                puts "Result from postbox: #{self} is: #{result}"
                 send(result)
             end
         end

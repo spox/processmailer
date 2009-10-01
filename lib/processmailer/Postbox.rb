@@ -1,4 +1,3 @@
-require 'actionpool'
 require 'processmailer/Exceptions'
 require 'processmailer/LogHelper'
 
@@ -10,9 +9,9 @@ module ProcessMailer
             default_args(args)
             @pipes = {:read => args[:read_pipe], :write => args[:write_pipe]}
             @proc = args[:proc] ? args[:proc] : lambda{nil}
-            @pool = ActionPool::Pool.new(args[:min_threads], args[:max_threads], args[:thread_to], args[:action_to], args[:logger])
             @logger = LogHelper.new(args[:logger])
             @stop = false
+            @count = 0
         end
         # Close the postbox for delivery
         def close
@@ -47,6 +46,8 @@ module ProcessMailer
         end
         private
         def receive
+            @count += 1
+            puts "Number of messages received at #{self} - #{@count}"
             @logger.info("Postbox (#{self}) has message waiting")
             begin
                 s = @pipes[:read].gets
@@ -63,21 +64,19 @@ module ProcessMailer
             rescue Object => boom
                 @logger.error("Postbox encountered error on receive: #{boom}")
             end
-            
         end
         def send(obj)
             return if obj.nil?
             @pipes[:write].puts [Marshal.dump(obj)].pack('m')
         end
         def run_process(obj)
-            @pool.process do
-                result = nil
-                begin
-                    result = process(obj)
-                rescue Object => boom
-                    @logger.warn("Postbox contents generated exception on call: #{boom}")
-                    result = boom
-                end
+            result = nil
+            begin
+                result = process(obj)
+            rescue Object => boom
+                @logger.warn("Postbox contents generated exception on call: #{boom}")
+                result = boom
+            ensure
                 send(result)
             end
         end

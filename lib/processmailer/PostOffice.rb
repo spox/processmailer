@@ -35,17 +35,17 @@ module ProcessMailer
             @close_postoffice = false
             @pool = args[:pool] ? args[:pool] : nil
             @spockets = Spockets::Spockets.new(:pool => @pool)
+            Signal.trap(0, proc{clean}) # make sure everything is cleaned up
         end
         # obj:: Serializable object for delivery
         # Delivers object to Postboxes for processing
         def deliver(obj)
-            @logger.info("Delivering: #{obj}")
             call_hooks(obj)
             s = [Marshal.dump(obj)].pack('m')
-            @postboxes.each_value{|pipes| pipes[:write].puts s}
-        end
-        def write_to_process(pipes, string)
-            @pool.process{ pipes[:lock].lock; pipes[:write].puts string; pipes[:lock].unlock}
+            @postboxes.each_value do |pipes|
+                pipes[:write].puts s
+                pipes[:write].flush
+            end
         end
         # pb:: Class name of custom Postbox
         # Registers a new Postbox with the PostOffice. Returns Postbox process ID
@@ -72,8 +72,7 @@ module ProcessMailer
                 end
             end
             if(pid)
-                @logger.info("New postbox with pid: #{pid}")
-                @postboxes[pid] = {:read => r, :write => w, :lock => Mutex.new}
+                @postboxes[pid] = {:read => r, :write => w}
                 @readers << r
                 @spockets.add(r) do |string|
                     deliver(Marshal.load(string.unpack('m')[0])) unless string.nil?
